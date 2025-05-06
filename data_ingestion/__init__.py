@@ -1,0 +1,1 @@
+"""Data ingestion package for fetching and processing financial data.""" 

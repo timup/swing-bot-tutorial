@@ -6,11 +6,15 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "aiofiles>=24.1.0",
+    "alembic>=1.15.2",
+    "asyncpg>=0.30.0",
     "backtesting>=0.6.4",
     "jupyterlab>=4.4.1",
     "matplotlib>=3.10.1",
     "pandas>=2.2.3",
+    "psycopg2-binary>=2.9.10",
     "quantlib>=1.38",
+    "sqlalchemy>=2.0.40",
     "yfinance>=0.2.58",
 ]
 

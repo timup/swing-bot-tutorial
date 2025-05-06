@@ -1,24 +1,34 @@
 import asyncio
-import pathlib
-from typing import List
+import logging
+from pathlib import Path
+from typing import List, Optional
 
 import aiofiles
 import pandas as pd
 import yfinance as yf
 
-# Base path for storing raw data, relative to the project root where swing-bot is.
-# Assuming the script is run from swing-bot directory or project root.
-# For robustness, this could be made configurable or determined dynamically.
-BASE_RAW_DATA_PATH = pathlib.Path("data/raw/yfinance")
+from core.config import Config
+from core.logging_config import get_logger
+
+# Configure logging
+logger = get_logger(__name__)
+
+# Use the Config class for data paths
+BASE_RAW_DATA_PATH = Config.yfinance_data_dir()
 
 
-async def _save_df_to_json(df: pd.DataFrame, file_path: pathlib.Path):
-    """Asynchronously saves a Pandas DataFrame to a JSON file."""
-    print(f"Saving DataFrame to {file_path}...")
+async def _save_df_to_json(df: pd.DataFrame, file_path: Path) -> None:
+    """Asynchronously saves a Pandas DataFrame to a JSON file.
+    
+    Args:
+        df: DataFrame to save
+        file_path: Target file path
+        
+    Raises:
+        IOError: If file cannot be written
+    """
+    logger.info(f"Saving DataFrame to {file_path}...")
     try:
-        # Ensure parent directory exists
-        # file_path.parent.mkdir(parents=True, exist_ok=True) # Handled by _fetch_single_expiry
-
         # Convert DataFrame to JSON string in a separate thread to avoid blocking
         json_data = await asyncio.to_thread(
             df.to_json, orient="records", indent=2, date_format="iso"
@@ -26,29 +36,41 @@ async def _save_df_to_json(df: pd.DataFrame, file_path: pathlib.Path):
 
         async with aiofiles.open(file_path, mode="w", encoding="utf-8") as f:
             await f.write(json_data)
-        print(f"Successfully saved data to {file_path}")
+        logger.info(f"Successfully saved data to {file_path}")
     except Exception as e:
-        print(f"Error saving DataFrame to {file_path}: {e}")
+        logger.error(f"Error saving DataFrame to {file_path}: {e}")
+        raise IOError(f"Failed to save data to {file_path}: {str(e)}") from e
 
 
 async def _fetch_single_expiry(
     ticker_obj: yf.Ticker,
     ticker_symbol: str,
     expiry_date: str,
-    base_save_path: pathlib.Path,
+    base_save_path: Path,
 ) -> List[pd.DataFrame]:
     """
     Fetches call and put option data for a single expiry date for a given ticker.
     Saves the raw data to JSON files and returns a list of [calls_df, puts_df].
-    Returns an empty list if data fetching fails for this expiry.
+    
+    Args:
+        ticker_obj: yfinance Ticker object
+        ticker_symbol: Ticker symbol string
+        expiry_date: Expiration date string in YYYY-MM-DD format
+        base_save_path: Base directory for saving JSON files
+        
+    Returns:
+        List of DataFrames containing call and put options data
+        
+    Raises:
+        ValueError: If data fetching fails or produces invalid results
     """
-    print(f"Fetching options for {ticker_symbol} expiry {expiry_date}...")
+    logger.info(f"Fetching options for {ticker_symbol} expiry {expiry_date}...")
     fetched_dfs = []
     try:
         option_chain = await asyncio.to_thread(ticker_obj.option_chain, expiry_date)
 
         if option_chain is None:
-            print(
+            logger.warning(
                 f"No option chain data returned for {ticker_symbol} expiry {expiry_date}."
             )
             return []
@@ -64,7 +86,7 @@ async def _fetch_single_expiry(
             await _save_df_to_json(calls_df, target_dir / f"{expiry_date}_calls.json")
             fetched_dfs.append(calls_df)
         else:
-            print(f"No call options data for {ticker_symbol} expiry {expiry_date}.")
+            logger.warning(f"No call options data for {ticker_symbol} expiry {expiry_date}.")
 
         puts_df = option_chain.puts
         if puts_df is not None and not puts_df.empty:
@@ -74,11 +96,11 @@ async def _fetch_single_expiry(
             await _save_df_to_json(puts_df, target_dir / f"{expiry_date}_puts.json")
             fetched_dfs.append(puts_df)
         else:
-            print(f"No put options data for {ticker_symbol} expiry {expiry_date}.")
+            logger.warning(f"No put options data for {ticker_symbol} expiry {expiry_date}.")
 
     except Exception as e:
-        print(f"Error fetching/processing {ticker_symbol} expiry {expiry_date}: {e}")
-        # Optionally, re-raise or handle more gracefully depending on requirements
+        logger.error(f"Error fetching/processing {ticker_symbol} expiry {expiry_date}: {e}")
+        # Don't raise here to allow other expiries to be processed
 
     return fetched_dfs
 
@@ -91,26 +113,31 @@ async def fetch_and_store_option_chains(
     and list of expiry dates from yfinance.
     Stores raw JSON data in data/raw/yfinance/{ticker}/{expiry_date}_{type}.json.
     Returns a single Pandas DataFrame concatenating all fetched option data.
+    
+    Args:
+        ticker_symbol: Stock ticker symbol (e.g., 'AAPL', 'MSFT')
+        expiry_dates: List of expiration dates in YYYY-MM-DD format
+        
+    Returns:
+        DataFrame containing all option data, or empty DataFrame if no data available
+        
+    Raises:
+        ValueError: If the ticker is invalid or no data could be fetched
     """
-    print(
+    logger.info(
         f"Starting option chain ingestion for ticker: {ticker_symbol}, expiries: {expiry_dates}"
     )
 
     try:
         # Initialize Ticker object in a thread to avoid blocking
         ticker_obj = await asyncio.to_thread(yf.Ticker, ticker_symbol)
-        # Basic check if ticker is valid by trying to access info (which also blocks)
-        # A more robust check might be needed if .info is too slow or unreliable for this purpose.
-        # If ticker_obj.info is empty or raises, it indicates an issue.
-        # However, yf.Ticker() itself doesn't usually raise for invalid tickers immediately.
-        # It often fails later when data is requested.
-        # Let's try to fetch options list to see if it works
+        # Check if ticker is valid by trying to access info
         _ = await asyncio.to_thread(lambda: ticker_obj.options)
     except Exception as e:
-        print(
+        logger.error(
             f"Failed to initialize yfinance.Ticker for {ticker_symbol} or fetch options list: {e}"
         )
-        return pd.DataFrame()  # Return empty DataFrame on ticker initialization failure
+        raise ValueError(f"Invalid ticker symbol or data unavailable: {ticker_symbol}") from e
 
     all_option_data_dfs = []
 
@@ -121,58 +148,58 @@ async def fetch_and_store_option_chains(
     ]
 
     # asyncio.gather collects results from all tasks
-    # return_exceptions=True allows us to handle individual task failures if needed
     results_for_expiries = await asyncio.gather(*tasks, return_exceptions=True)
 
     for result in results_for_expiries:
         if isinstance(result, Exception):
-            print(f"A task failed during fetching: {result}")
+            logger.error(f"A task failed during fetching: {result}")
         elif isinstance(result, list):
             all_option_data_dfs.extend(
                 result
             )  # result is a list of DataFrames (calls, puts)
         else:
-            print(f"Unexpected result type from _fetch_single_expiry: {type(result)}")
+            logger.warning(f"Unexpected result type from _fetch_single_expiry: {type(result)}")
 
     if not all_option_data_dfs:
-        print(f"No option data fetched for {ticker_symbol} across specified expiries.")
+        logger.warning(f"No option data fetched for {ticker_symbol} across specified expiries.")
         return pd.DataFrame()  # Return empty DataFrame if nothing was fetched
 
     # Concatenate all collected DataFrames into a single master DataFrame
     try:
         final_df = pd.concat(all_option_data_dfs, ignore_index=True)
-        print(
+        logger.info(
             f"Successfully fetched and combined data for {ticker_symbol}. Shape: {final_df.shape}"
         )
         return final_df
     except Exception as e:
-        print(f"Error concatenating DataFrames for {ticker_symbol}: {e}")
+        logger.error(f"Error concatenating DataFrames for {ticker_symbol}: {e}")
         return pd.DataFrame()  # Return empty DataFrame on concatenation error
 
 
 if __name__ == "__main__":
+    # Configure logging for standalone execution
+    from core.logging_config import configure_logging
+    
+    configure_logging()
+    
     # Example usage for testing
     async def run_test():
-        print("Running yfinance_ingestor test...")
-        # test_ticker = "AAPL"
-        # test_ticker = "MSFT"
+        logger.info("Running yfinance_ingestor test...")
         test_ticker = "NVDA"  # A ticker with many options
 
-        print(f"Fetching available expiry dates for {test_ticker}...")
+        logger.info(f"Fetching available expiry dates for {test_ticker}...")
         try:
             # Getting options list is also blocking, access as property via lambda
             expiries = await asyncio.to_thread(lambda: yf.Ticker(test_ticker).options)
         except Exception as e:
-            print(f"Could not fetch expiry dates for {test_ticker}: {e}")
+            logger.error(f"Could not fetch expiry dates for {test_ticker}: {e}")
             return
 
         if not expiries:
-            print(f"No expiry dates found for {test_ticker}. Cannot run test.")
+            logger.error(f"No expiry dates found for {test_ticker}. Cannot run test.")
             return
 
-        # Select a few expiries for testing, e.g., the first 2-3
-        # test_expiry_dates = list(expiries[:min(len(expiries), 3)])
-        # Let's try a specific farther out expiry if available
+        # Select a few expiries for testing
         if len(expiries) > 5:
             test_expiry_dates = [
                 expiries[0],
@@ -188,48 +215,43 @@ if __name__ == "__main__":
         elif expiries:
             test_expiry_dates = list(expiries[: min(len(expiries), 3)])
         else:
-            print(f"Not enough expiry dates for {test_ticker} to select a diverse set.")
+            logger.error(f"Not enough expiry dates for {test_ticker} to select a diverse set.")
             return
 
         if not test_expiry_dates:
-            print(
+            logger.error(
                 f"No test expiry dates selected for {test_ticker}. Test cannot proceed."
             )
             return
 
-        print(f"Test parameters: Ticker={test_ticker}, Expiries={test_expiry_dates}")
+        logger.info(f"Test parameters: Ticker={test_ticker}, Expiries={test_expiry_dates}")
 
         # Ensure the base data directory exists before running the main function
-        # Although the function itself should handle subdir creation.
         BASE_RAW_DATA_PATH.mkdir(parents=True, exist_ok=True)
-        print(f"Ensured base directory exists: {BASE_RAW_DATA_PATH.resolve()}")
+        logger.info(f"Ensured base directory exists: {BASE_RAW_DATA_PATH.resolve()}")
 
-        df_result = await fetch_and_store_option_chains(test_ticker, test_expiry_dates)
+        try:
+            df_result = await fetch_and_store_option_chains(test_ticker, test_expiry_dates)
+        except ValueError as e:
+            logger.error(f"Error during test: {e}")
+            return
 
         if not df_result.empty:
-            print("\n--- Fetched DataFrame Head ---")
-            print(df_result.head())
-            print("\n--- Fetched DataFrame Info ---")
-            df_result.info()
-            print(f"\nTotal options contracts fetched: {len(df_result)}")
-
-            # Verify columns
-            print("\n--- DataFrame Columns ---")
-            print(df_result.columns.tolist())
-            assert "expiryDate" in df_result.columns
-            assert "optionType" in df_result.columns
-            print("expiryDate and optionType columns verified.")
-
-            print("\n--- Sample of expiryDate and optionType ---")
-            print(
-                df_result[["expiryDate", "optionType"]].sample(min(5, len(df_result)))
-            )
-
-            print(
-                f"\nTest completed for {test_ticker}. Check 'data/raw/yfinance/{test_ticker}' for JSON files."
+            logger.info(f"\n--- Fetched DataFrame summary ---")
+            logger.info(f"Shape: {df_result.shape}")
+            logger.info(f"Columns: {df_result.columns.tolist()}")
+            
+            # Verify expected columns
+            if "expiryDate" in df_result.columns and "optionType" in df_result.columns:
+                logger.info("expiryDate and optionType columns verified.")
+            else:
+                logger.error("Missing expected columns in result DataFrame")
+            
+            logger.info(
+                f"Test completed for {test_ticker}. Check 'data/raw/yfinance/{test_ticker}' for JSON files."
             )
         else:
-            print(f"Test for {test_ticker} resulted in an empty DataFrame.")
+            logger.error(f"Test for {test_ticker} resulted in an empty DataFrame.")
 
     # Python 3.7+ syntax for running asyncio main
     asyncio.run(run_test())

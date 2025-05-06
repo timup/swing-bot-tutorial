@@ -1,6 +1,7 @@
 # Python cache files
 __pycache__/
 *.py[cod]
+*$py.class
 
 # Virtual environment
 .venv/
@@ -15,9 +16,39 @@ ENV/
 *.egg-info/
 dist/
 build/
+*.egg
 
 # Logs
 *.log
+logs/
 
 # Other files
 *.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Data directories
+data/
+!data/.gitkeep
+
+# Ruff cache
+.ruff_cache/
+
+# SQLite database files (if used for local testing)
+*.db
+*.sqlite
+*.sqlite3
+
+# HTML files created from notebooks or plots
+*.html
+!templates/**/*.html
+
+# Local Postgres data (if using Docker)
+pgdata/
