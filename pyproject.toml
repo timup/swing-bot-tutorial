@@ -9,5 +9,11 @@ dependencies = [
     "jupyterlab>=4.4.1",
     "matplotlib>=3.10.1",
     "pandas>=2.2.3",
+    "quantlib>=1.38",
     "yfinance>=0.2.58",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.8",
 ]
