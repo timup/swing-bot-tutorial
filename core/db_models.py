@@ -43,10 +43,15 @@ class OptionContract(Base):
         Numeric(10, 2), nullable=False
     )  # Precision 10, 2 decimal places
 
+    # Additional static fields from Polygon
+    cfi_code = Column(String, nullable=True) # e.g., OCASPS, OPASPS
+    exercise_style = Column(String, nullable=True) # e.g., american, european
+    primary_exchange = Column(String, nullable=True) # e.g., XNAS, ARCX, CBOE
+    shares_per_contract = Column(Integer, nullable=True) # Typically 100 for US equity options
+
     # Additional static fields (can be added later if needed via migrations)
-    # contract_size = Column(Integer, default=100, nullable=False)
+    # contract_size = Column(Integer, default=100, nullable=False) # Covered by shares_per_contract
     # currency = Column(String(3), default="USD", nullable=False)
-    # primary_exchange = Column(String, nullable=True)
 
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
     updated_at = Column(

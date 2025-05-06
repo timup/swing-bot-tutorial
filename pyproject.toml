@@ -16,6 +16,8 @@ dependencies = [
     "quantlib>=1.38",
     "sqlalchemy>=2.0.40",
     "yfinance>=0.2.58",
+    "openbb>=4.0.0",
+    "polygon-api-client>=1.13.0",
 ]
 
 [dependency-groups]

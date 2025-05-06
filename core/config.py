@@ -23,6 +23,10 @@ class Config:
     DB_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
     DB_PORT: str = os.getenv("POSTGRES_PORT", "5432")
     DB_NAME: Optional[str] = os.getenv("POSTGRES_DB")
+    # Add other environment variables as needed
+    # e.g., API keys for external services
+    OPENBB_API_KEY: Optional[str] = os.getenv("OPENBB_API_KEY") # Example, if ever needed
+    POLYGON_API_KEY: Optional[str] = os.getenv("POLYGON_API_KEY")
     
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
